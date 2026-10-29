@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "okx_safe_test.py"
+      - "scanner.py"
+      - "demo_trader.py"
       - "requirements.txt"
       - ".github/workflows/okx-safe-test.yml"
 
@@ -26,9 +28,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run OKX demo safe test
+      - name: Run OKX demo authentication test
         env:
           OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
         run: python okx_safe_test.py
+
+      - name: Run strategy scanner
+        run: python scanner.py
+
+      - name: Verify demo trader safety lock
+        env:
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          ENABLE_DEMO_ORDERS: "NO"
+        run: python demo_trader.py
