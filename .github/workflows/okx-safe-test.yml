@@ -1,18 +1,21 @@
-name: OKX Safe Demo Test
+name: OKX Scanner + Telegram
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
   push:
     branches: [main]
     paths:
       - "okx_safe_test.py"
       - "scanner.py"
       - "demo_trader.py"
+      - "telegram_alerts.py"
       - "requirements.txt"
       - ".github/workflows/okx-safe-test.yml"
 
 jobs:
-  safe-test:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -37,6 +40,12 @@ jobs:
 
       - name: Run strategy scanner
         run: python scanner.py
+
+      - name: Send A-grade Telegram alerts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_alerts.py
 
       - name: Verify demo trader safety lock
         env:
