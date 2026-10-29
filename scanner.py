@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import requests
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 BASE_URL = "https://www.okx.com"
 TIMEOUT = 15
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-TIMEFRAMES = ["15m", "1H", "4H"]
 CANDLE_LIMIT = 220
+MIN_RR = 2.0
 
 
 @dataclass
@@ -22,129 +22,192 @@ class Candle:
 
 
 def get_closed_candles(inst_id: str, bar: str, limit: int = CANDLE_LIMIT) -> List[Candle]:
-    url = f"{BASE_URL}/api/v5/market/history-candles"
-    r = requests.get(url, params={"instId": inst_id, "bar": bar, "limit": str(limit)}, timeout=TIMEOUT)
+    r = requests.get(
+        f"{BASE_URL}/api/v5/market/history-candles",
+        params={"instId": inst_id, "bar": bar, "limit": str(limit)},
+        timeout=TIMEOUT,
+    )
     r.raise_for_status()
     payload = r.json()
     if payload.get("code") != "0":
         raise RuntimeError(f"OKX error {payload.get('code')}: {payload.get('msg')}")
-
-    candles: List[Candle] = []
+    out: List[Candle] = []
     for row in payload.get("data", []):
-        # OKX candle: ts,o,h,l,c,vol,volCcy,volCcyQuote,confirm
         if len(row) >= 9 and row[8] == "1":
-            candles.append(Candle(int(row[0]), float(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5])))
-    candles.sort(key=lambda x: x.ts)
-    return candles
+            out.append(Candle(int(row[0]), *map(float, row[1:6])))
+    out.sort(key=lambda x: x.ts)
+    return out
 
 
 def ema(values: List[float], period: int) -> float:
-    if len(values) < period:
-        raise ValueError(f"Need at least {period} values")
     alpha = 2.0 / (period + 1.0)
-    result = sum(values[:period]) / period
-    for value in values[period:]:
-        result = alpha * value + (1.0 - alpha) * result
-    return result
+    x = sum(values[:period]) / period
+    for v in values[period:]:
+        x = alpha * v + (1.0 - alpha) * x
+    return x
 
 
-def rsi(values: List[float], period: int = 14) -> float:
-    if len(values) < period + 1:
-        raise ValueError("Not enough values for RSI")
-    gains, losses = [], []
-    for i in range(1, len(values)):
-        d = values[i] - values[i - 1]
-        gains.append(max(d, 0.0))
-        losses.append(max(-d, 0.0))
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    for g, l in zip(gains[period:], losses[period:]):
-        avg_gain = ((avg_gain * (period - 1)) + g) / period
-        avg_loss = ((avg_loss * (period - 1)) + l) / period
-    if avg_loss == 0:
-        return 100.0
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
+def atr(c: List[Candle], period: int = 14) -> float:
+    tr = [max(c[i].h-c[i].l, abs(c[i].h-c[i-1].c), abs(c[i].l-c[i-1].c)) for i in range(1, len(c))]
+    x = sum(tr[:period]) / period
+    for v in tr[period:]:
+        x = ((x * (period - 1)) + v) / period
+    return x
 
 
-def atr(candles: List[Candle], period: int = 14) -> float:
-    if len(candles) < period + 1:
-        raise ValueError("Not enough candles for ATR")
-    trs = []
-    for i in range(1, len(candles)):
-        cur, prev = candles[i], candles[i - 1]
-        trs.append(max(cur.h - cur.l, abs(cur.h - prev.c), abs(cur.l - prev.c)))
-    result = sum(trs[:period]) / period
-    for tr in trs[period:]:
-        result = ((result * (period - 1)) + tr) / period
-    return result
-
-
-def support_resistance(candles: List[Candle], lookback: int = 50) -> tuple[float, float]:
-    window = candles[-lookback:]
-    return min(x.l for x in window), max(x.h for x in window)
-
-
-def structure(candles: List[Candle], swing: int = 10) -> str:
-    if len(candles) < swing * 2:
-        return "UNKNOWN"
-    prev = candles[-swing * 2:-swing]
-    recent = candles[-swing:]
-    prev_high, prev_low = max(x.h for x in prev), min(x.l for x in prev)
-    recent_high, recent_low = max(x.h for x in recent), min(x.l for x in recent)
-    if recent_high > prev_high and recent_low > prev_low:
+def trend(c: List[Candle]) -> str:
+    closes = [x.c for x in c]
+    e20, e50 = ema(closes, 20), ema(closes, 50)
+    if c[-1].c > e20 > e50:
         return "BULLISH"
-    if recent_high < prev_high and recent_low < prev_low:
+    if c[-1].c < e20 < e50:
         return "BEARISH"
-    return "RANGE/MIXED"
+    return "MIXED"
 
 
-def analyze(inst_id: str, bar: str) -> dict:
-    candles = get_closed_candles(inst_id, bar)
-    if len(candles) < 205:
-        raise RuntimeError(f"Only {len(candles)} closed candles returned")
-    closes = [x.c for x in candles]
-    last = candles[-1]
-    e20, e50, e200 = ema(closes, 20), ema(closes, 50), ema(closes, 200)
-    rv = rsi(closes, 14)
-    av = atr(candles, 14)
-    support, resistance = support_resistance(candles, 50)
-    st = structure(candles)
-    trend = "BULLISH" if last.c > e20 > e50 > e200 else "BEARISH" if last.c < e20 < e50 < e200 else "MIXED"
-    avg_vol = sum(x.vol for x in candles[-21:-1]) / 20
-    vol_ratio = (last.vol / avg_vol) if avg_vol else 0.0
+def cisd(c: List[Candle]) -> Optional[str]:
+    # Taif CISD: current close crosses the opening price of the first candle
+    # in a sequence of at least two opposing candles.
+    if len(c) < 4:
+        return None
+    last = c[-1]
+    for n in range(2, 6):
+        seq = c[-1-n:-1]
+        if len(seq) != n:
+            continue
+        if all(x.c < x.o for x in seq) and last.c > seq[0].o:
+            return "BULLISH"
+        if all(x.c > x.o for x in seq) and last.c < seq[0].o:
+            return "BEARISH"
+    return None
+
+
+def taif_signal(c15: List[Candle], c1h: List[Candle], c4h: List[Candle]) -> Optional[dict]:
+    if min(len(c15), len(c1h), len(c4h)) < 60:
+        return None
+
+    last = c15[-1]
+    a = atr(c15)
+    t1, t4 = trend(c1h), trend(c4h)
+    ci = cisd(c15)
+    avg_vol = sum(x.vol for x in c15[-21:-1]) / 20
+    vr = last.vol / avg_vol if avg_vol else 0.0
+
+    # Recent levels are calculated BEFORE the signal candle.
+    recent = c15[-21:-1]
+    resistance = max(x.h for x in recent)
+    support = min(x.l for x in recent)
+    body = abs(last.c - last.o)
+
+    # Liquidity sweep: Taif's preferred setup.
+    long_sweep = last.l < support and last.c > support
+    short_sweep = last.h > resistance and last.c < resistance
+
+    # Ordinary breakout: closed 15m candle beyond the previous 20-candle range,
+    # 0.10 ATR buffer, aligned with 1h trend, with no retest requirement.
+    long_break = last.c > resistance + 0.10 * a and t1 == "BULLISH"
+    short_break = last.c < support - 0.10 * a and t1 == "BEARISH"
+
+    side = setup = None
+    score = 0.0
+    if long_sweep:
+        side, setup, score = "LONG", "LIQUIDITY_SWEEP", 6.0
+    elif short_sweep:
+        side, setup, score = "SHORT", "LIQUIDITY_SWEEP", 6.0
+    elif long_break:
+        side, setup, score = "LONG", "BREAKOUT", 6.3
+    elif short_break:
+        side, setup, score = "SHORT", "BREAKOUT", 6.3
+    else:
+        return None
+
+    wanted = "BULLISH" if side == "LONG" else "BEARISH"
+    opposite = "BEARISH" if side == "LONG" else "BULLISH"
+
+    if t1 == wanted:
+        score += 0.7
+    if t4 == wanted:
+        score += 0.5
+    if t1 == opposite and t4 == opposite:
+        score -= 1.2
+    if ci == wanted:
+        score += 0.5
+    if vr >= 1.5:
+        score += 0.7
+    elif vr >= 1.1:
+        score += 0.3
+    elif vr < 0.65:
+        score -= 0.4
+
+    # Strong breakout quality bonuses; CISD is context/bonus, not mandatory.
+    if setup == "BREAKOUT":
+        if vr >= 1.25:
+            score += 0.3
+        if body >= 0.55 * a:
+            score += 0.3
+        # Do not chase an already overextended breakout.
+        level = resistance if side == "LONG" else support
+        if abs(last.c - level) > 1.0 * a:
+            return None
+
+    entry = last.c
+    if side == "LONG":
+        sl = min(last.l, support) - 0.20 * a
+        risk = entry - sl
+        if risk <= 0:
+            return None
+        tp1, tp2, tp3 = entry + risk, entry + 2*risk, entry + 3*risk
+    else:
+        sl = max(last.h, resistance) + 0.20 * a
+        risk = sl - entry
+        if risk <= 0:
+            return None
+        tp1, tp2, tp3 = entry - risk, entry - 2*risk, entry - 3*risk
+
+    grade = "A" if score >= 7.5 else "B" if score >= 6.0 else "C"
+    if grade == "C":
+        return None
+
     return {
-        "price": last.c,
-        "ema20": e20,
-        "ema50": e50,
-        "ema200": e200,
-        "rsi": rv,
-        "atr": av,
-        "support": support,
-        "resistance": resistance,
-        "structure": st,
-        "trend": trend,
-        "volume_ratio": vol_ratio,
+        "side": side,
+        "setup": setup,
+        "grade": grade,
+        "score": round(score, 1),
+        "entry": entry,
+        "sl": sl,
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "rr_tp2": MIN_RR,
+        "trend_1h": t1,
+        "trend_4h": t4,
+        "cisd": ci or "NONE",
+        "volume_ratio": vr,
     }
 
 
 def main() -> None:
-    print("OKX MARKET SCANNER - CLOSED CANDLES ONLY")
-    print("Analysis only: no order placement.\n")
-    for inst_id in INSTRUMENTS:
-        print(f"=== {inst_id} ===")
-        for bar in TIMEFRAMES:
-            try:
-                x = analyze(inst_id, bar)
-                print(
-                    f"{bar:>3} | price={x['price']:.6g} | trend={x['trend']} | structure={x['structure']} | "
-                    f"RSI={x['rsi']:.1f} | ATR={x['atr']:.6g} | vol={x['volume_ratio']:.2f}x | "
-                    f"S={x['support']:.6g} R={x['resistance']:.6g} | "
-                    f"EMA20/50/200={x['ema20']:.6g}/{x['ema50']:.6g}/{x['ema200']:.6g}"
-                )
-            except Exception as exc:
-                print(f"{bar:>3} | ERROR: {exc}")
-        print()
+    print("OKX TAIF STRATEGY SCANNER - CLOSED CANDLES ONLY")
+    print("Analysis only. No orders are placed.\n")
+    for inst in INSTRUMENTS:
+        try:
+            c15 = get_closed_candles(inst, "15m")
+            c1h = get_closed_candles(inst, "1H")
+            c4h = get_closed_candles(inst, "4H")
+            s = taif_signal(c15, c1h, c4h)
+            print(f"=== {inst} ===")
+            if not s:
+                print("NO VALID TAIF SETUP\n")
+                continue
+            print(f"{s['grade']} | {s['side']} | {s['setup']} | score={s['score']}")
+            print(f"Entry: {s['entry']:.8g}")
+            print(f"SL:    {s['sl']:.8g}")
+            print(f"TP1:   {s['tp1']:.8g} (1R)")
+            print(f"TP2:   {s['tp2']:.8g} (2R)")
+            print(f"TP3:   {s['tp3']:.8g} (3R)")
+            print(f"1H={s['trend_1h']} | 4H={s['trend_4h']} | CISD={s['cisd']} | VOL={s['volume_ratio']:.2f}x\n")
+        except Exception as exc:
+            print(f"=== {inst} ===\nERROR: {exc}\n")
 
 
 if __name__ == "__main__":
