@@ -1,25 +1,29 @@
 name: XAUUSD USDJPY Strategy Scanner
 
-on:
+'on':
   push:
     branches:
       - main
   schedule:
     - cron: '2,17,32,47 * * 1-5'
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt
-      - run: python telegram_alerts.py
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run scanner
         env:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_alerts.py
