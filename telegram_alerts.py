@@ -1,61 +1,40 @@
+import json
 import os
 import requests
+from scanner import scan_all
 
-from scanner import INSTRUMENTS, get_closed_candles, taif_signal
+TOKEN=os.environ["TELEGRAM_BOT_TOKEN"]
+CHAT=os.environ["TELEGRAM_CHAT_ID"]
+STATE_FILE="signal_state.json"
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+def load_state():
+    try:
+        with open(STATE_FILE, "r") as f: return json.load(f)
+    except Exception: return {"sent": []}
 
+def save_state(st):
+    with open(STATE_FILE, "w") as f: json.dump(st, f)
 
-def send_message(text: str) -> None:
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    r = requests.post(
-        url,
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": text,
-        },
-        timeout=15,
-    )
+def send(text):
+    r=requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={"chat_id":CHAT,"text":text}, timeout=20)
     r.raise_for_status()
-    data = r.json()
-    if not data.get("ok"):
-        raise RuntimeError(f"Telegram API error: {data}")
+    if not r.json().get("ok"): raise RuntimeError("Telegram send failed")
 
+def main():
+    st=load_state(); sent=set(st.get("sent", [])); changed=False
+    for s in scan_all():
+        sid=s["setup_id"]
+        if sid in sent: continue
+        text=(f"🚨 صفقة جديدة\n\n"
+              f"الاستراتيجية: {s['strategy']}\n"
+              f"الرمز: {s['symbol']} | الفريم: {s['timeframe']}\n"
+              f"الاتجاه: {s['side']}\n\n"
+              f"Entry: {s['entry']:.5f}\nSL: {s['sl']:.5f}\n"
+              f"TP1: {s['tp1']:.5f} (1R)\nTP2: {s['tp2']:.5f} (2R)\nTP3: {s['tp3']:.5f} (3R)\n"
+              f"R:R المستهدف: 1:{s['rr']:.0f}\n\nID: {sid}\n⚠️ إشارة فقط — لا يتم تنفيذ أي أمر تلقائياً.")
+        send(text); sent.add(sid); changed=True; print(f"Alert sent: {sid}")
+    if changed:
+        st["sent"]=list(sent)[-300:]; save_state(st)
+    else: print("No new alert")
 
-def main() -> None:
-    found = False
-    for inst_id in INSTRUMENTS:
-        c15 = get_closed_candles(inst_id, "15m")
-        c1h = get_closed_candles(inst_id, "1H")
-        c4h = get_closed_candles(inst_id, "4H")
-        signal = taif_signal(c15, c1h, c4h)
-
-        if not signal or signal["grade"] != "A":
-            continue
-
-        found = True
-        text = (
-            f"🚨 OKX DEMO — A SETUP\n\n"
-            f"Symbol: {inst_id}\n"
-            f"Direction: {signal['side']}\n"
-            f"Setup: {signal['setup']}\n"
-            f"Score: {signal['score']}\n\n"
-            f"Entry: {signal['entry']:.8g}\n"
-            f"SL: {signal['sl']:.8g}\n"
-            f"TP1: {signal['tp1']:.8g}\n"
-            f"TP2: {signal['tp2']:.8g}\n"
-            f"TP3: {signal['tp3']:.8g}\n\n"
-            f"1H: {signal['trend_1h']} | 4H: {signal['trend_4h']}\n"
-            f"CISD: {signal['cisd']} | VOL: {signal['volume_ratio']:.2f}x\n\n"
-            f"⚠️ Signal only — no order was placed."
-        )
-        send_message(text)
-        print(f"Telegram alert sent: {inst_id}")
-
-    if not found:
-        print("No A-grade setup. No Telegram alert sent.")
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
