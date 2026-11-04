@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import List, Optional
 import requests
@@ -19,10 +20,14 @@ class Candle:
     c: float
 
 
+def candle_time(ts: str) -> datetime:
+    return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+
+
 def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candle]:
     if not API_KEY:
         raise RuntimeError("Missing TWELVE_DATA_API_KEY")
-    r = requests.get(f"{BASE_URL}/time_series", params={"symbol": symbol, "interval": interval, "outputsize": outputsize, "apikey": API_KEY, "format": "JSON"}, timeout=TIMEOUT)
+    r = requests.get(f"{BASE_URL}/time_series", params={"symbol": symbol, "interval": interval, "outputsize": outputsize, "apikey": API_KEY, "format": "JSON", "timezone": "UTC"}, timeout=TIMEOUT)
     r.raise_for_status()
     data = r.json()
     if data.get("status") == "error" or not data.get("values"):
@@ -36,6 +41,19 @@ def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candl
         raise RuntimeError(f"Invalid OHLC candles for {symbol} {interval}")
     if any(out[i].ts >= out[i+1].ts for i in range(len(out)-1)):
         raise RuntimeError(f"Unordered/duplicate candle timestamps for {symbol} {interval}")
+    # Twelve Data timestamps are explicitly requested in UTC. Never trade on a forming candle.
+    duration = {"5min": timedelta(minutes=5), "15min": timedelta(minutes=15), "1h": timedelta(hours=1), "1day": timedelta(days=1)}[interval]
+    now = datetime.now(timezone.utc)
+    if candle_time(out[-1].ts) > now + timedelta(minutes=2):
+        raise RuntimeError(f"Future candle timestamp for {symbol} {interval}: {out[-1].ts} UTC")
+    if interval != "1day":
+        out = [v for v in out if candle_time(v.ts) + duration <= now - timedelta(seconds=30)]
+        if len(out) < min_count:
+            raise RuntimeError(f"Insufficient closed candles for {symbol} {interval}")
+        lag = now - (candle_time(out[-1].ts) + duration)
+        allowed_lag = {"5min": timedelta(minutes=20), "15min": timedelta(minutes=25), "1h": timedelta(minutes=75)}[interval]
+        if lag > allowed_lag:
+            raise RuntimeError(f"Stale candles for {symbol} {interval}: lag={lag}")
     print(f"DATA OK | {symbol} | {interval} | count={len(out)} | first={out[0].ts} | last={out[-1].ts} | close={out[-1].c:.5f}", flush=True)
     return out
 
