@@ -1,12 +1,24 @@
-name: Scheduled Scanner Trigger Test
+name: Scheduled XAUUSD USDJPY Scanner
 
 'on':
   schedule:
-    - cron: '*/15 * * * 1-5'
-  workflow_dispatch:
+    - cron: '2,17,32,47 * * 1-5'
 
 jobs:
-  test:
+  scan:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Schedule trigger accepted"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run scanner
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_alerts.py
