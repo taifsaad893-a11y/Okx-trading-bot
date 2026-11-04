@@ -29,6 +29,13 @@ def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candl
         raise RuntimeError(data.get("message", f"No candles for {symbol}"))
     out = [Candle(x["datetime"], float(x["open"]), float(x["high"]), float(x["low"]), float(x["close"])) for x in data["values"]]
     out.reverse()
+    if len(out) < 25:
+        raise RuntimeError(f"Insufficient candles for {symbol} {interval}: {len(out)}")
+    if any(not (v.l <= v.o <= v.h and v.l <= v.c <= v.h and v.l > 0) for v in out):
+        raise RuntimeError(f"Invalid OHLC candles for {symbol} {interval}")
+    if any(out[i].ts >= out[i+1].ts for i in range(len(out)-1)):
+        raise RuntimeError(f"Unordered/duplicate candle timestamps for {symbol} {interval}")
+    print(f"DATA OK | {symbol} | {interval} | count={len(out)} | first={out[0].ts} | last={out[-1].ts} | close={out[-1].c:.5f}", flush=True)
     return out
 
 
@@ -93,12 +100,16 @@ def donchian_scalper_xau() -> Optional[dict]:
 
 def scan_all() -> list[dict]:
     out=[]
+    errors=[]
     for fn in (atr_candle_breakout_xau, daily_range_breakout_usdjpy, donchian_scalper_xau):
         try:
             s=fn()
             if s: out.append(s)
         except Exception as e:
-            print(f"{fn.__name__}: ERROR: {e}")
+            errors.append(f"{fn.__name__}: {e}")
+            print(f"{fn.__name__}: ERROR: {e}", flush=True)
+    if errors:
+        raise RuntimeError("Data/strategy scan failed: " + "; ".join(errors))
     return out
 
 
