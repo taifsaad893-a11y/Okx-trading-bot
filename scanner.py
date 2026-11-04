@@ -29,7 +29,8 @@ def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candl
         raise RuntimeError(data.get("message", f"No candles for {symbol}"))
     out = [Candle(x["datetime"], float(x["open"]), float(x["high"]), float(x["low"]), float(x["close"])) for x in data["values"]]
     out.reverse()
-    if len(out) < 25:
+    min_count = 10 if interval == '1day' else 25
+    if len(out) < min_count:
         raise RuntimeError(f"Insufficient candles for {symbol} {interval}: {len(out)}")
     if any(not (v.l <= v.o <= v.h and v.l <= v.c <= v.h and v.l > 0) for v in out):
         raise RuntimeError(f"Invalid OHLC candles for {symbol} {interval}")
