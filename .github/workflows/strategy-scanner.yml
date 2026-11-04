@@ -2,6 +2,8 @@ name: XAUUSD USDJPY Strategy Scanner
 
 'on':
   push:
+  schedule:
+    - cron: '2,17,32,47 * * 1-5'
   workflow_dispatch:
 
 jobs:
