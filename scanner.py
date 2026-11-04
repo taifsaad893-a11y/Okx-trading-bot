@@ -44,7 +44,7 @@ def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candl
     # Twelve Data timestamps are explicitly requested in UTC. Never trade on a forming candle.
     duration = {"5min": timedelta(minutes=5), "15min": timedelta(minutes=15), "1h": timedelta(hours=1), "1day": timedelta(days=1)}[interval]
     now = datetime.now(timezone.utc)
-    if candle_time(out[-1].ts) > now + timedelta(minutes=2):
+    if interval != "1day" and candle_time(out[-1].ts) > now + timedelta(minutes=2):
         raise RuntimeError(f"Future candle timestamp for {symbol} {interval}: {out[-1].ts} UTC")
     if interval != "1day":
         out = [v for v in out if candle_time(v.ts) + duration <= now - timedelta(seconds=30)]
@@ -89,7 +89,12 @@ def atr_candle_breakout_xau() -> Optional[dict]:
 def daily_range_breakout_usdjpy() -> Optional[dict]:
     d = get_candles("USD/JPY", "1day", 12)
     h = get_candles("USD/JPY", "1h", 80)
-    prev = d[-2]
+    # Daily bars may be labelled with the next calendar day before UTC midnight.
+    # Use the latest fully past UTC daily bar as the breakout reference.
+    completed_days = [v for v in d if candle_time(v.ts).date() < datetime.now(timezone.utc).date()]
+    if not completed_days:
+        raise RuntimeError("No completed USDJPY daily reference candle")
+    prev = completed_days[-1]
     x = h[-1]
     a = atr(h[:-1])
     buffer = 0.08*a
@@ -104,18 +109,29 @@ def daily_range_breakout_usdjpy() -> Optional[dict]:
 
 def donchian_scalper_xau() -> Optional[dict]:
     c = get_candles("XAU/USD", "5min", 100)
-    x = c[-1]
-    prior = c[-21:-1]
-    upper, lower = max(v.h for v in prior), min(v.l for v in prior)
-    a = atr(c[:-1])
-    if x.c > upper + 0.03*a:
-        z = levels("LONG", x.c, max(upper-0.35*a, x.l-0.15*a))
-    elif x.c < lower - 0.03*a:
-        z = levels("SHORT", x.c, min(lower+0.35*a, x.h+0.15*a))
-    else: return None
-    if z: z.update(strategy="DONCHIAN CHANNEL SCALPER", symbol="XAUUSD", timeframe="5m", setup_id=f"DON-XAU-{x.ts}")
-    return z
-
+    # Scan the three most recent CLOSED 5m bars, not only the last bar.
+    # A 15m scheduled scan would otherwise miss breakouts between checks.
+    now = datetime.now(timezone.utc)
+    for i in range(len(c) - 1, max(20, len(c) - 4), -1):
+        x = c[i]
+        if now - (candle_time(x.ts) + timedelta(minutes=5)) > timedelta(minutes=16):
+            continue
+        prior = c[i-20:i]
+        upper, lower = max(v.h for v in prior), min(v.l for v in prior)
+        a = atr(c[:i])
+        if x.c > upper + 0.03*a:
+            z = levels("LONG", x.c, max(upper-0.35*a, x.l-0.15*a))
+        elif x.c < lower - 0.03*a:
+            z = levels("SHORT", x.c, min(lower+0.35*a, x.h+0.15*a))
+        else:
+            continue
+        if z:
+            z.update(strategy="DONCHIAN CHANNEL SCALPER", symbol="XAUUSD",
+                     timeframe="5m", setup_id=f"DON-XAU-{x.ts}")
+            print(f"DONCHIAN SIGNAL | {x.ts} | {z['side']} | entry={z['entry']:.5f}", flush=True)
+            return z
+    print("DONCHIAN | checked last 3 closed 5m candles | no fresh breakout", flush=True)
+    return None
 
 def scan_all() -> list[dict]:
     out=[]
