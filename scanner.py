@@ -82,7 +82,7 @@ def atr_candle_breakout_xau() -> Optional[dict]:
     elif x.c < prev.l - 0.05*a:
         z = levels("SHORT", x.c, max(x.h, prev.h)+0.15*a)
     else: return None
-    if z: z.update(strategy="ATR CANDLE BREAKOUT", symbol="XAUUSD", timeframe="15m", setup_id=f"ATR-XAU-{x.ts}")
+    if z: z.update(strategy="ATR CANDLE BREAKOUT", symbol="XAUUSD", timeframe="15m", setup_id=f"ATR-XAU-{x.ts}", closed_at=(candle_time(x.ts)+timedelta(minutes=15)).isoformat(), max_age_minutes=7, max_deviation=0.35*a)
     return z
 
 
@@ -103,7 +103,7 @@ def daily_range_breakout_usdjpy() -> Optional[dict]:
     elif x.c < prev.l - buffer:
         z = levels("SHORT", x.c, min(prev.l+0.35*a, x.h+0.15*a))
     else: return None
-    if z: z.update(strategy="DAILY RANGE BREAKOUT", symbol="USDJPY", timeframe="1H", setup_id=f"DRB-JPY-{x.ts}")
+    if z: z.update(strategy="DAILY RANGE BREAKOUT", symbol="USDJPY", timeframe="1H", setup_id=f"DRB-JPY-{x.ts}", closed_at=(candle_time(x.ts)+timedelta(hours=1)).isoformat(), max_age_minutes=17, max_deviation=0.35*a)
     return z
 
 
@@ -127,7 +127,9 @@ def donchian_scalper_xau() -> Optional[dict]:
             continue
         if z:
             z.update(strategy="DONCHIAN CHANNEL SCALPER", symbol="XAUUSD",
-                     timeframe="5m", setup_id=f"DON-XAU-{x.ts}")
+                     timeframe="5m", setup_id=f"DON-XAU-{x.ts}",
+                     closed_at=(candle_time(x.ts)+timedelta(minutes=5)).isoformat(),
+                     max_age_minutes=7, max_deviation=0.35*a)
             print(f"DONCHIAN SIGNAL | {x.ts} | {z['side']} | entry={z['entry']:.5f}", flush=True)
             return z
     print("DONCHIAN | checked last 3 closed 5m candles | no fresh breakout", flush=True)
