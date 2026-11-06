@@ -138,7 +138,7 @@ def donchian_scalper_xau() -> Optional[dict]:
 def scan_all() -> list[dict]:
     out=[]
     errors=[]
-    for fn in (atr_candle_breakout_xau, daily_range_breakout_usdjpy, donchian_scalper_xau):
+    for fn in (atr_candle_breakout_xau, donchian_scalper_xau):
         try:
             s=fn()
             if s: out.append(s)
@@ -151,7 +151,7 @@ def scan_all() -> list[dict]:
 
 
 def main():
-    print("XAUUSD / USDJPY STRATEGY SCANNER - SIGNALS ONLY")
+    print("XAUUSD STRATEGY SCANNER - SIGNALS ONLY")
     signals=scan_all()
     if not signals: print("NO NEW SETUP")
     for s in signals:
