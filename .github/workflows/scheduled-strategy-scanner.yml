@@ -14,6 +14,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,4 +30,9 @@ jobs:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python telegram_alerts.py
+        run: |
+          for i in $(seq 1 15); do
+            echo "SCAN $i/15 at $(date -u +%FT%TZ)"
+            python telegram_alerts.py || echo "Scan $i failed; continuing"
+            if [ "$i" -lt 15 ]; then sleep 60; fi
+          done
