@@ -56,6 +56,8 @@ def current_price(symbol):
 def track_active(state):
     changed = False
     for sid, trade in list(state["active"].items()):
+        if trade["symbol"] != "XAUUSD":
+            continue  # USDJPY monitoring disabled; retain historical state.
         interval = "5min" if trade["symbol"] == "XAUUSD" else "1h"
         symbol = "XAU/USD" if trade["symbol"] == "XAUUSD" else "USD/JPY"
         bars = get_candles(symbol, interval, 100)
