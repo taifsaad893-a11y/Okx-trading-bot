@@ -82,7 +82,7 @@ def atr_candle_breakout_xau() -> Optional[dict]:
     elif x.c < prev.l - 0.05*a:
         z = levels("SHORT", x.c, max(x.h, prev.h)+0.15*a)
     else: return None
-    if z: z.update(strategy="ATR CANDLE BREAKOUT", symbol="XAUUSD", timeframe="15m", setup_id=f"ATR-XAU-{x.ts}", closed_at=(candle_time(x.ts)+timedelta(minutes=15)).isoformat(), max_age_minutes=7, max_deviation=0.35*a)
+    if z: z.update(strategy="ATR CANDLE BREAKOUT", symbol="XAUUSD", timeframe="15m", setup_id=f"ATR-XAU-{x.ts}", closed_at=(candle_time(x.ts)+timedelta(minutes=15)).isoformat(), max_age_minutes=12, max_deviation=0.35*a)
     return z
 
 
