@@ -76,12 +76,18 @@ def atr_candle_breakout_xau() -> Optional[dict]:
     x = c[-1]
     prev = c[-2]
     body = abs(x.c-x.o)
-    if body < 0.8*a: return None
+    if body < 0.8*a:
+        print(f"ATR CHECK | candle={x.ts} | NO SETUP: weak body | body={body:.4f} required={0.8*a:.4f} atr={a:.4f}", flush=True)
+        return None
     if x.c > prev.h + 0.05*a:
         z = levels("LONG", x.c, min(x.l, prev.l)-0.15*a)
     elif x.c < prev.l - 0.05*a:
         z = levels("SHORT", x.c, max(x.h, prev.h)+0.15*a)
-    else: return None
+    else:
+        print(f"ATR CHECK | candle={x.ts} | NO SETUP: no breakout | close={x.c:.4f} long_above={prev.h+0.05*a:.4f} short_below={prev.l-0.05*a:.4f}", flush=True)
+        return None
+    if z:
+        print(f"ATR SIGNAL | candle={x.ts} | {z['side']} | entry={z['entry']:.4f} | atr={a:.4f}", flush=True)
     if z: z.update(strategy="ATR CANDLE BREAKOUT", symbol="XAUUSD", timeframe="15m", setup_id=f"ATR-XAU-{x.ts}", closed_at=(candle_time(x.ts)+timedelta(minutes=15)).isoformat(), max_age_minutes=12, max_deviation=0.35*a)
     return z
 
