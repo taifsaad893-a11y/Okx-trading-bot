@@ -1,8 +1,8 @@
-name: Scheduled XAUUSD USDJPY Scanner
+name: Scheduled XAUUSD Gold Scanner
 
 'on':
   schedule:
-    - cron: '1,16,31,46 * * * 1-5'
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * 1-5'
   workflow_dispatch:
   push:
     branches: [main]
@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: market-scanner-state
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   scan:
@@ -36,8 +36,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          for i in $(seq 1 15); do
-            echo "SCAN $i/15 at $(date -u +%FT%TZ)"
+          for i in $(seq 1 5); do
+            echo "SCAN $i/5 at $(date -u +%FT%TZ)"
             python telegram_alerts.py || echo "Scan $i failed; continuing"
-            if [ "$i" -lt 15 ]; then sleep 60; fi
+            if [ "$i" -lt 5 ]; then sleep 60; fi
           done
