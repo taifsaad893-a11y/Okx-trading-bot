@@ -91,8 +91,15 @@ def main():
     state, sha = load_state()
     state.setdefault("sent", [])
     state.setdefault("active", {})
-    changed = track_active(state)
+    # Prioritize fresh entry signals; tracking data may hit the provider quota.
     signals = scan_all()
+    try:
+        changed = track_active(state)
+    except requests.HTTPError as exc:
+        if exc.response is None or exc.response.status_code != 429:
+            raise
+        print("TRACKING DEFERRED | Twelve Data rate limit (429); preserving active trades", flush=True)
+        changed = False
     now = datetime.now(timezone.utc)
     for signal in signals:
         sid = signal["setup_id"]
