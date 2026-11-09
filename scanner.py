@@ -152,7 +152,9 @@ def scan_all() -> list[dict]:
             errors.append(f"{fn.__name__}: {e}")
             print(f"{fn.__name__}: ERROR: {e}", flush=True)
     if errors:
-        raise RuntimeError("Data/strategy scan failed: " + "; ".join(errors))
+        print("PARTIAL SCAN | " + "; ".join(errors) + f" | valid_signals={len(out)}", flush=True)
+        if not out:
+            print("SCAN WARNING | No signal returned; at least one strategy could not be checked", flush=True)
     return out
 
 
