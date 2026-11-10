@@ -10,6 +10,7 @@ BASE_URL = "https://api.twelvedata.com"
 API_KEY = os.environ.get("TWELVE_DATA_API_KEY", "")
 TIMEOUT = 20
 MIN_RR = 2.0
+_CANDLE_CACHE = {}
 
 @dataclass
 class Candle:
@@ -25,13 +26,17 @@ def candle_time(ts: str) -> datetime:
 
 
 def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candle]:
+    cache_key = (symbol, interval, outputsize)
+    if cache_key in _CANDLE_CACHE:
+        return list(_CANDLE_CACHE[cache_key])
     if not API_KEY:
         raise RuntimeError("Missing TWELVE_DATA_API_KEY")
     r = requests.get(f"{BASE_URL}/time_series", params={"symbol": symbol, "interval": interval, "outputsize": outputsize, "apikey": API_KEY, "format": "JSON", "timezone": "UTC"}, timeout=TIMEOUT)
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"Twelve Data HTTP {r.status_code}")
     data = r.json()
     if data.get("status") == "error" or not data.get("values"):
-        raise RuntimeError(data.get("message", f"No candles for {symbol}"))
+        raise RuntimeError(f"Twelve Data API error {data.get('code', 'no values')} for {symbol}")
     out = [Candle(x["datetime"], float(x["open"]), float(x["high"]), float(x["low"]), float(x["close"])) for x in data["values"]]
     out.reverse()
     min_count = 10 if interval == '1day' else 25
@@ -55,6 +60,7 @@ def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candl
         if lag > allowed_lag:
             raise RuntimeError(f"Stale candles for {symbol} {interval}: lag={lag}")
     print(f"DATA OK | {symbol} | {interval} | count={len(out)} | first={out[0].ts} | last={out[-1].ts} | close={out[-1].c:.5f}", flush=True)
+    _CANDLE_CACHE[cache_key] = list(out)
     return out
 
 
@@ -153,8 +159,7 @@ def scan_all() -> list[dict]:
             print(f"{fn.__name__}: ERROR: {e}", flush=True)
     if errors:
         print("PARTIAL SCAN | " + "; ".join(errors) + f" | valid_signals={len(out)}", flush=True)
-        if not out:
-            print("SCAN WARNING | No signal returned; at least one strategy could not be checked", flush=True)
+        raise RuntimeError("Incomplete market scan; see strategy status above")
     return out
 
 
@@ -167,3 +172,4 @@ def main():
         print(f"Entry {s['entry']:.5f} | SL {s['sl']:.5f} | TP1 {s['tp1']:.5f} | TP2 {s['tp2']:.5f} | TP3 {s['tp3']:.5f} | RR 1:{s['rr']:.0f}")
 
 if __name__ == "__main__": main()
+

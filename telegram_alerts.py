@@ -12,6 +12,19 @@ REPO = os.environ["GITHUB_REPOSITORY"]
 STATE_PATH = "signal_state.json"
 GH_URL = f"https://api.github.com/repos/{REPO}/contents/{STATE_PATH}"
 HEADERS = {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
+_PRICE_CACHE = {}
+
+
+def telegram_health():
+    for method, params in (("getMe", {}), ("getChat", {"chat_id": CHAT})):
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}",
+                              json=params, timeout=20)
+            if not r.ok or r.json().get("ok") is not True:
+                raise RuntimeError("Telegram rejected health check")
+        except Exception:
+            raise RuntimeError(f"TELEGRAM CHECK FAILED | {method}") from None
+    print("TELEGRAM CHECK OK | bot and destination accessible; no test message sent", flush=True)
 
 
 def load_state():
@@ -30,30 +43,36 @@ def save_state(state, sha):
         body["sha"] = sha
     r = requests.put(GH_URL, headers=HEADERS, json=body, timeout=20)
     r.raise_for_status()
+    return r.json()["content"]["sha"]
 
 
 def send(message):
     r = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
                       json={"chat_id": CHAT, "text": message}, timeout=20)
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"Telegram send HTTP {r.status_code}")
     if not r.json().get("ok"):
         raise RuntimeError("Telegram send failed")
 
 
 def current_price(symbol):
+    if symbol in _PRICE_CACHE:
+        return _PRICE_CACHE[symbol]
     # Live reference, not the signal candle close.
     api_symbol = "XAU/USD" if symbol == "XAUUSD" else "USD/JPY"
     r = requests.get("https://api.twelvedata.com/price",
                      params={"symbol": api_symbol, "apikey": os.environ["TWELVE_DATA_API_KEY"]},
                      timeout=20)
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"Twelve Data price HTTP {r.status_code}")
     result = r.json()
     if "price" not in result:
-        raise RuntimeError(f"Current price unavailable for {symbol}: {result.get('message', result)}")
-    return float(result["price"])
+        raise RuntimeError(f"Current price unavailable for {symbol}: code={result.get('code', 'unknown')}")
+    _PRICE_CACHE[symbol] = float(result["price"])
+    return _PRICE_CACHE[symbol]
 
 
-def track_active(state):
+def track_active(state, persist=None):
     changed = False
     for sid, trade in list(state["active"].items()):
         if trade["symbol"] != "XAUUSD":
@@ -71,6 +90,8 @@ def track_active(state):
                 send(f"🛑 ضرب الستوب | {trade['symbol']} | {trade['strategy']}\nID: {sid}\nSL: {trade['sl']:.5f}")
                 del state["active"][sid]
                 changed = True
+                if persist:
+                    persist(state)
                 break
             for level in ("tp1", "tp2", "tp3"):
                 hit = bar.h >= trade[level] if side == "LONG" else bar.l <= trade[level]
@@ -78,8 +99,12 @@ def track_active(state):
                     send(f"🎯 تحقق {level.upper()} | {trade['symbol']} | {trade['strategy']}\nID: {sid}\nالسعر: {trade[level]:.5f}")
                     trade["hit"].append(level)
                     changed = True
+                    if level == "tp3":
+                        del state["active"][sid]
+                    if persist:
+                        persist(state)
             if "tp3" in trade["hit"]:
-                del state["active"][sid]
+                state["active"].pop(sid, None)
                 changed = True
                 break
         if sid in state["active"]:
@@ -88,13 +113,19 @@ def track_active(state):
 
 
 def main():
+    telegram_health()
     state, sha = load_state()
+    def persist(current):
+        nonlocal sha
+        current["sent"] = current["sent"][-300:]
+        sha = save_state(current, sha)
+        print("STATE SAVED | notification progress committed", flush=True)
     state.setdefault("sent", [])
     state.setdefault("active", {})
     # Prioritize fresh entry signals; tracking data may hit the provider quota.
     signals = scan_all()
     try:
-        changed = track_active(state)
+        changed = track_active(state, persist)
     except requests.HTTPError as exc:
         if exc.response is None or exc.response.status_code != 429:
             raise
@@ -131,13 +162,15 @@ def main():
         state["active"][sid] = {k: signal[k] for k in ("symbol", "strategy", "side", "entry", "sl", "tp1", "tp2", "tp3")}
         state["active"][sid].update(opened_at=now.isoformat(), hit=[])
         changed = True
+        persist(state)
         print(f"Alert sent: {sid}", flush=True)
     if changed:
         state["sent"] = state["sent"][-300:]
-        save_state(state, sha)
+        persist(state)
     else:
         print("No new alert / target event", flush=True)
 
 
 if __name__ == "__main__":
     main()
+
