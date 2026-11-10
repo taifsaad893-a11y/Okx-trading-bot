@@ -1,9 +1,6 @@
 name: XAUUSD USDJPY Strategy Scanner
 
 'on':
-  push:
-    paths-ignore:
-      - 'signal_state.json'
   workflow_dispatch:
 
 permissions:
