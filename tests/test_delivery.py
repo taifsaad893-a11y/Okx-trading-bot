@@ -38,7 +38,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(saved[-1]['active'], {})
 
     def test_market_failure_does_not_report_success(self):
-        with patch.object(scanner, 'atr_candle_breakout_xau', side_effect=RuntimeError('429'), __name__='atr_candle_breakout_xau'), \
+        with patch.object(scanner, 'atr_candle_breakout_xau', side_effect=RuntimeError('simulated provider failure'), __name__='atr_candle_breakout_xau'), \
              patch.object(scanner, 'donchian_scalper_xau', return_value=None):
             with self.assertRaises(RuntimeError):
                 scanner.scan_all()
