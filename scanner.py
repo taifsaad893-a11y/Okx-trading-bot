@@ -119,46 +119,13 @@ def daily_range_breakout_usdjpy() -> Optional[dict]:
     return z
 
 
-def donchian_scalper_xau() -> Optional[dict]:
-    c = get_candles("XAU/USD", "5min", 100)
-    # Scan the three most recent CLOSED 5m bars, not only the last bar.
-    # A 15m scheduled scan would otherwise miss breakouts between checks.
-    now = datetime.now(timezone.utc)
-    for i in range(len(c) - 1, max(20, len(c) - 4), -1):
-        x = c[i]
-        if now - (candle_time(x.ts) + timedelta(minutes=5)) > timedelta(minutes=16):
-            continue
-        prior = c[i-20:i]
-        upper, lower = max(v.h for v in prior), min(v.l for v in prior)
-        a = atr(c[:i])
-        if x.c > upper + 0.03*a:
-            z = levels("LONG", x.c, max(upper-0.35*a, x.l-0.15*a))
-        elif x.c < lower - 0.03*a:
-            z = levels("SHORT", x.c, min(lower+0.35*a, x.h+0.15*a))
-        else:
-            continue
-        if z:
-            z.update(strategy="DONCHIAN CHANNEL SCALPER", symbol="XAUUSD",
-                     timeframe="5m", setup_id=f"DON-XAU-{x.ts}",
-                     closed_at=(candle_time(x.ts)+timedelta(minutes=5)).isoformat(),
-                     max_age_minutes=7, max_deviation=0.35*a)
-            print(f"DONCHIAN SIGNAL | {x.ts} | {z['side']} | entry={z['entry']:.5f}", flush=True)
-            return z
-    print("DONCHIAN | checked last 3 closed 5m candles | no fresh breakout", flush=True)
-    return None
-
 def scan_all() -> list[dict]:
     out=[]
-    errors=[]
-    for fn in (atr_candle_breakout_xau, donchian_scalper_xau):
-        try:
-            s=fn()
-            if s: out.append(s)
-        except Exception as e:
-            errors.append(f"{fn.__name__}: {e}")
-            print(f"{fn.__name__}: ERROR: {e}", flush=True)
-    if errors:
-        print("PARTIAL SCAN | " + "; ".join(errors) + f" | valid_signals={len(out)}", flush=True)
+    try:
+        s=atr_candle_breakout_xau()
+        if s: out.append(s)
+    except Exception as e:
+        print(f"atr_candle_breakout_xau: ERROR: {e}", flush=True)
         raise RuntimeError("Incomplete market scan; see strategy status above")
     return out
 
@@ -172,4 +139,3 @@ def main():
         print(f"Entry {s['entry']:.5f} | SL {s['sl']:.5f} | TP1 {s['tp1']:.5f} | TP2 {s['tp2']:.5f} | TP3 {s['tp3']:.5f} | RR 1:{s['rr']:.0f}")
 
 if __name__ == "__main__": main()
-
