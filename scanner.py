@@ -19,6 +19,7 @@ class Candle:
     h: float
     l: float
     c: float
+    volume: Optional[float] = None
 
 
 def candle_time(ts: str) -> datetime:
@@ -37,7 +38,7 @@ def get_candles(symbol: str, interval: str, outputsize: int = 120) -> List[Candl
     data = r.json()
     if data.get("status") == "error" or not data.get("values"):
         raise RuntimeError(f"Twelve Data API error {data.get('code', 'no values')} for {symbol}")
-    out = [Candle(x["datetime"], float(x["open"]), float(x["high"]), float(x["low"]), float(x["close"])) for x in data["values"]]
+    out = [Candle(x["datetime"], float(x["open"]), float(x["high"]), float(x["low"]), float(x["close"]), float(x["volume"]) if x.get("volume") not in (None, "", "null") else None) for x in data["values"]]
     out.reverse()
     min_count = 10 if interval == '1day' else 25
     if len(out) < min_count:
@@ -76,27 +77,71 @@ def levels(side: str, entry: float, stop: float) -> Optional[dict]:
     return {"side": side, "entry": entry, "sl": stop, "tp1": entry+s*risk, "tp2": entry+s*2*risk, "tp3": entry+s*3*risk, "rr": MIN_RR}
 
 
+def ema(values: List[float], period: int) -> float:
+    if len(values) < period: raise ValueError(f'Need {period} values for EMA')
+    alpha = 2 / (period + 1)
+    result = sum(values[:period]) / period
+    for value in values[period:]: result = value * alpha + result * (1 - alpha)
+    return result
+
 def atr_candle_breakout_xau() -> Optional[dict]:
-    c = get_candles("XAU/USD", "15min", 100)
+    # Closed 15m candle drives entries; 1H EMA, volume and S/R are quality factors only.
+    c = get_candles('XAU/USD', '15min', 100)
     a = atr(c[:-1])
-    x = c[-1]
-    prev = c[-2]
+    x, prev = c[-1], c[-2]
     body = abs(x.c-x.o)
     if body < 0.8*a:
-        print(f"ATR CHECK | candle={x.ts} | NO SETUP: weak body | body={body:.4f} required={0.8*a:.4f} atr={a:.4f}", flush=True)
+        print(f'ATR CHECK | {x.ts} | no setup: weak candle body', flush=True)
         return None
+    side = None
+    setup_type = None
     if x.c > prev.h + 0.05*a:
-        z = levels("LONG", x.c, min(x.l, prev.l)-0.15*a)
+        side, setup_type = 'LONG', 'BREAKOUT'
     elif x.c < prev.l - 0.05*a:
-        z = levels("SHORT", x.c, max(x.h, prev.h)+0.15*a)
-    else:
-        print(f"ATR CHECK | candle={x.ts} | NO SETUP: no breakout | close={x.c:.4f} long_above={prev.h+0.05*a:.4f} short_below={prev.l-0.05*a:.4f}", flush=True)
+        side, setup_type = 'SHORT', 'BREAKOUT'
+    elif len(c) >= 4:
+        ref = c[-3]
+        if prev.c > ref.h + 0.05*a and x.l <= ref.h + 0.12*a and x.c > ref.h and x.c > x.o and body >= 0.4*a:
+            side, setup_type = 'LONG', 'BREAKOUT RETEST'
+        elif prev.c < ref.l - 0.05*a and x.h >= ref.l - 0.12*a and x.c < ref.l and x.c < x.o and body >= 0.4*a:
+            side, setup_type = 'SHORT', 'BREAKOUT RETEST'
+    if not side:
+        print(f'ATR CHECK | {x.ts} | no confirmed breakout/retest', flush=True)
         return None
-    if z:
-        print(f"ATR SIGNAL | candle={x.ts} | {z['side']} | entry={z['entry']:.4f} | atr={a:.4f}", flush=True)
-    if z: z.update(strategy="ATR CANDLE BREAKOUT", symbol="XAUUSD", timeframe="15m", setup_id=f"ATR-XAU-{x.ts}", closed_at=(candle_time(x.ts)+timedelta(minutes=15)).isoformat(), max_age_minutes=12, max_deviation=0.35*a)
+    stop = min(x.l, prev.l)-0.15*a if side == 'LONG' else max(x.h, prev.h)+0.15*a
+    z = levels(side, x.c, stop)
+    if not z: return None
+    score = 5.0
+    notes = []
+    try:
+        h1 = get_candles('XAU/USD', '1h', 240)
+        closes = [v.c for v in h1]
+        e50, e200 = ema(closes, 50), ema(closes, 200)
+        aligned = (side == 'LONG' and closes[-1] > e50 > e200) or (side == 'SHORT' and closes[-1] < e50 < e200)
+        if aligned: score += 1.5; notes.append('1H EMA50/200 aligned')
+        else: notes.append('1H EMA not aligned (quality only)')
+    except Exception as exc: notes.append('1H EMA unavailable: ' + str(exc)[:80])
+    vols = [v.volume for v in c[-21:-1] if v.volume is not None]
+    if x.volume is not None and len(vols) >= 10:
+        avg_vol = sum(vols)/len(vols)
+        if avg_vol > 0 and x.volume >= 1.15*avg_vol: score += 1.0; notes.append('volume > 1.15x average')
+        else: notes.append('volume not expanded (quality only)')
+    else: notes.append('volume unavailable from feed')
+    recent = c[-41:-1]
+    if side == 'LONG':
+        levels_above = [v.h for v in recent if v.h > x.c]
+        room = min(levels_above)-x.c if levels_above else None
+    else:
+        levels_below = [v.l for v in recent if v.l < x.c]
+        room = x.c-max(levels_below) if levels_below else None
+    if room is None or room >= abs(x.c-stop): score += 0.5; notes.append('S/R room acceptable')
+    else: notes.append('nearby S/R: caution')
+    z.update(strategy='ATR CANDLE BREAKOUT PRO', symbol='XAUUSD', timeframe='15m',
+             setup_id=f'ATR-XAU-{x.ts}', closed_at=(candle_time(x.ts)+timedelta(minutes=15)).isoformat(),
+             max_age_minutes=12, max_deviation=0.35*a, setup_type=setup_type,
+             score=round(score,1), quality='A' if score >= 6.5 else 'B', analysis='; '.join(notes), atr=a)
+    print(f'ATR SIGNAL | {side} | {setup_type} | score={score:.1f} | ' + z['analysis'], flush=True)
     return z
-
 
 def daily_range_breakout_usdjpy() -> Optional[dict]:
     d = get_candles("USD/JPY", "1day", 12)
