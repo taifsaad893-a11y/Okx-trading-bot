@@ -95,9 +95,9 @@ def atr_candle_breakout_xau() -> Optional[dict]:
         return None
     side = None
     setup_type = None
-    if x.c > prev.h + 0.05*a:
+    if body >= 0.8*a and x.c > prev.h + 0.05*a:
         side, setup_type = 'LONG', 'BREAKOUT'
-    elif x.c < prev.l - 0.05*a:
+    elif body >= 0.8*a and x.c < prev.l - 0.05*a:
         side, setup_type = 'SHORT', 'BREAKOUT'
     elif len(c) >= 4:
         ref = c[-3]
