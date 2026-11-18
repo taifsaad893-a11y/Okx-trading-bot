@@ -89,6 +89,9 @@ def track_active(state, persist=None):
                     send(f"🎯 تحقق {level.upper()} | {trade['symbol']} | {trade['strategy']}\nID: {sid}\nالسعر: {trade[level]:.5f}")
                     trade["hit"].append(level)
                     changed = True
+                    if level == "tp1":
+                        trade["sl"] = trade["entry"]
+                        send(f"🔒 **STOP MOVED TO ENTRY** | {trade['symbol']} | Entry: **{trade['entry']:.5f}**")
                     if level == "tp3":
                         del state["active"][sid]
                     if persist:
