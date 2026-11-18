@@ -1,16 +1,13 @@
 import copy
 import os
 import unittest
-from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
-os.environ.setdefault('TELEGRAM_BOT_TOKEN', 'test')
-os.environ.setdefault('TELEGRAM_CHAT_ID', 'test')
 os.environ.setdefault('GITHUB_TOKEN', 'test')
 os.environ.setdefault('GITHUB_REPOSITORY', 'test/test')
 os.environ.setdefault('TWELVE_DATA_API_KEY', 'test')
 import scanner
-import telegram_alerts as alerts
+import discord_alerts as alerts
 
 
 class DeliveryTests(unittest.TestCase):
@@ -29,7 +26,7 @@ class DeliveryTests(unittest.TestCase):
 
     def test_final_target_persisted_as_closed(self):
         state = dict(sent=['id'], active={'id': dict(symbol='XAUUSD', strategy='test',
-            side='LONG', sl=90, tp1=101, tp2=102, tp3=103, hit=['tp1', 'tp2'],
+            side='LONG', entry=100, sl=90, tp1=101, tp2=102, tp3=103, hit=['tp1', 'tp2'],
             opened_at='2026-11-10T00:00:00+00:00')})
         saved = []
         bar = scanner.Candle('2026-11-10 00:05:00', 100, 104, 99, 103)
