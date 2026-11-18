@@ -7,6 +7,8 @@ name: Scheduled XAUUSD Gold Scanner
     branches: [main]
     paths:
       - '.github/workflows/scheduled-strategy-scanner.yml'
+      - 'scanner.py'
+      - 'discord_alerts.py'
 
 permissions:
   contents: write
@@ -34,8 +36,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python telegram_alerts.py
+          python discord_alerts.py
 
