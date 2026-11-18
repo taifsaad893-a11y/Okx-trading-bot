@@ -19,7 +19,7 @@ class DeliveryTests(unittest.TestCase):
         saved = []
         bar = scanner.Candle('2026-11-10 00:05:00', 100, 104, 99, 103)
         with patch.object(alerts, 'get_candles', return_value=[bar]), \
-             patch.object(alerts, 'send', side_effect=[None, RuntimeError('offline')]):
+             patch.object(alerts, 'send', side_effect=[None, None, RuntimeError('offline')]):
             with self.assertRaises(RuntimeError):
                 alerts.track_active(state, lambda s: saved.append(copy.deepcopy(s)))
         self.assertEqual(saved[0]['active']['id']['hit'], ['tp1'])
