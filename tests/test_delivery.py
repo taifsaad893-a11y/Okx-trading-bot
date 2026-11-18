@@ -3,11 +3,13 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
+os.environ.setdefault('TELEGRAM_BOT_TOKEN', 'test')
+os.environ.setdefault('TELEGRAM_CHAT_ID', 'test')
 os.environ.setdefault('GITHUB_TOKEN', 'test')
 os.environ.setdefault('GITHUB_REPOSITORY', 'test/test')
 os.environ.setdefault('TWELVE_DATA_API_KEY', 'test')
 import scanner
-import discord_alerts as alerts
+import telegram_alerts as alerts
 
 
 class DeliveryTests(unittest.TestCase):
